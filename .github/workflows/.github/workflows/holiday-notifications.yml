@@ -1,0 +1,44 @@
+name: Send cultural holiday notifications
+
+on:
+  schedule:
+    - cron: "0 14 * * *"   # 14:00 UTC daily (adjust if needed)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Set to 1 to test without sending pushes"
+        required: false
+        default: "0"
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Supabase Edge Function
+        env:
+          FUNCTION_URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
+          SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${FUNCTION_URL:-}" ] || [ -z "${SERVICE_ROLE_KEY:-}" ]; then
+            echo "❌ Missing SUPABASE_FUNCTION_URL or SUPABASE_SERVICE_ROLE_KEY secrets."
+            exit 1
+          fi
+
+          echo "→ Hitting function with dry_run=${DRY_RUN}"
+
+          STATUS=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "${FUNCTION_URL}?dry_run=${DRY_RUN}" \
+            -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            --data '{"source":"github-actions"}')
+
+          echo "HTTP ${STATUS}"
+          echo "Response:"
+          cat /tmp/resp.json
+
+          if [ "${STATUS}" -lt 200 ] || [ "${STATUS}" -ge 300 ]; then
+            exit 1
+          fi
